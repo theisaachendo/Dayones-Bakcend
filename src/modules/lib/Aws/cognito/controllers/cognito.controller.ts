@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpException,
-  HttpStatus,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CognitoService } from '../services/cognito.service';
 
@@ -16,13 +9,22 @@ export class CognitoController {
 
   @Post('signup')
   async userSignUp(
-    @Body() body: { username: string; password: string; role: string },
+    @Body()
+    body: {
+      username: string;
+      password: string;
+      role: string;
+      full_name: string;
+      phone_number: string;
+    },
   ): Promise<any> {
     try {
       return await this.cognitoService.signUp(
         body.username,
         body.password,
         body.role,
+        body.full_name,
+        body.phone_number,
       );
     } catch (error) {
       console.log('🚀 ~ CognitoController ~ userSignUp ~ error:', error);
@@ -54,6 +56,18 @@ export class CognitoController {
     const { username, password } = body;
     try {
       const result = await this.cognitoService.signIn(username, password);
+      return result; // Return the sign-in result (e.g., tokens)
+    } catch (error) {
+      console.log('🚀 ~ CognitoController ~ signIn ~ error:', error);
+      throw error; // Handle the error appropriately
+    }
+  }
+
+  @Post('signout')
+  async signout(@Body() body: { accessToken: string }): Promise<any> {
+    const { accessToken } = body;
+    try {
+      const result = await this.cognitoService.signOut(accessToken);
       return result; // Return the sign-in result (e.g., tokens)
     } catch (error) {
       console.log('🚀 ~ CognitoController ~ signIn ~ error:', error);

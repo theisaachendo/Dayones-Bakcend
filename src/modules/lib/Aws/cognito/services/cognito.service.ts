@@ -5,9 +5,7 @@ import * as crypto from 'crypto';
 @Injectable()
 export class CognitoService {
   private cognito: AWS.CognitoIdentityServiceProvider;
-  private userPoolId = process.env.COGNITO_POOL_ID; // Replace with your User Pool ID
   private clientId = process.env.COGNITO_CLIENT_ID; // Replace with your App Client ID
-  private clientSecret = process.env.COGNITO_CLIENT_SECRET;
 
   constructor() {
     this.cognito = new AWS.CognitoIdentityServiceProvider({
@@ -25,10 +23,13 @@ export class CognitoService {
     return hmac.digest('base64');
   }
 
-  async signUp(username: string, password: string, role: string) {
-    // if (!this.clientId || !this.clientSecret) {
-    //   throw new Error('Cognito Client ID or Secret is not defined');
-    // }
+  async signUp(
+    username: string,
+    password: string,
+    role: string,
+    fullName: string,
+    phoneNumber: string,
+  ) {
     const params = {
       ClientId: this.clientId || '',
       SecretHash: this.computeSecretHash(username),
@@ -36,8 +37,20 @@ export class CognitoService {
       Password: password,
       UserAttributes: [
         {
-          Name: 'email', // Use 'email' instead of 'Username'
+          Name: 'email', // Standard Cognito attribute for email
           Value: username, // Assuming username is an email
+        },
+        {
+          Name: 'custom:full_name', // Custom attribute for full name
+          Value: fullName,
+        },
+        {
+          Name: 'custom:role', // Custom attribute for role
+          Value: role,
+        },
+        {
+          Name: 'custom:phone_number', // Custom attribute for role
+          Value: phoneNumber,
         },
       ],
     };
@@ -46,7 +59,8 @@ export class CognitoService {
       const result = await this.cognito.signUp(params).promise();
       return result;
     } catch (error) {
-      throw new Error(`Error during sign-up: ${error.message}`);
+      console.log('🚀 ~ CognitoService ~ error:', error);
+      throw error;
     }
   }
 
@@ -65,7 +79,8 @@ export class CognitoService {
       const result = await this.cognito.confirmSignUp(params).promise();
       return result; // This indicates that the user is confirmed
     } catch (error) {
-      throw new Error(`Error during confirmation: ${error.message}`);
+      console.log('🚀 ~ CognitoService ~ error:', error);
+      throw error;
     }
   }
 
@@ -100,6 +115,20 @@ export class CognitoService {
       throw new UnauthorizedException(
         `Authentication failed: ${error.message}`,
       );
+    }
+  }
+
+  async signOut(accessToken: string) {
+    const params = {
+      AccessToken: accessToken,
+    };
+    try {
+      // Global sign out logs the user out from all devices
+      const result = await this.cognito.globalSignOut(params).promise();
+      return result; // Successfully signed out
+    } catch (error) {
+      console.log('🚀 ~ CognitoService ~ signOut error:', error);
+      throw new UnauthorizedException(`Sign out failed: ${error.message}`);
     }
   }
 }
