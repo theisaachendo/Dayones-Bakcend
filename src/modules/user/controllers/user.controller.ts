@@ -7,17 +7,4 @@ import { ROLES } from 'src/shared/constants';
 @Controller('user')
 export class UserController {
   constructor(private userService: UserService) {}
-
-  @Post('create')
-  createUser(
-    @Body()
-    body: {
-      full_name: string;
-      email: string;
-      phone_number: string;
-      role: ROLES;
-    },
-  ): any {
-    return this.userService.createUser(body);
-  }
 }

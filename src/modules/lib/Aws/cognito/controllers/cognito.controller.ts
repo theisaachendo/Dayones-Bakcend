@@ -11,23 +11,23 @@ export class CognitoController {
   async userSignUp(
     @Body()
     body: {
-      username: string;
+      email: string;
       password: string;
       role: string;
-      full_name: string;
+      name: string;
       phone_number: string;
     },
   ): Promise<any> {
     try {
       return await this.cognitoService.signUp(
-        body.username,
+        body.email,
         body.password,
         body.role,
-        body.full_name,
+        body.name,
         body.phone_number,
       );
     } catch (error) {
-      console.log('🚀 ~ CognitoController ~ userSignUp ~ error:', error);
+      console.error('🚀 ~ CognitoController ~ userSignUp ~ error:', error);
       throw error;
     }
   }
@@ -44,7 +44,24 @@ export class CognitoController {
       );
       return result; // Indicate success
     } catch (error) {
-      console.log('🚀 ~ CognitoController ~ verifyUser ~ error:', error);
+      console.error('🚀 ~ CognitoController ~ verifyUser ~ error:', error);
+      throw error; // Handle the error appropriately
+    }
+  }
+
+  @Post('resendConfirm')
+  async resendConfirmationCode(
+    @Body() body: { username: string },
+  ): Promise<any> {
+    const { username } = body;
+    try {
+      const result = await this.cognitoService.resendSignUpCode(username);
+      return result; // Indicate success
+    } catch (error) {
+      console.error(
+        '🚀 ~ CognitoController ~ resendConfirmationCode ~ error:',
+        error,
+      );
       throw error; // Handle the error appropriately
     }
   }
@@ -58,7 +75,7 @@ export class CognitoController {
       const result = await this.cognitoService.signIn(username, password);
       return result; // Return the sign-in result (e.g., tokens)
     } catch (error) {
-      console.log('🚀 ~ CognitoController ~ signIn ~ error:', error);
+      console.error('🚀 ~ CognitoController ~ signIn ~ error:', error);
       throw error; // Handle the error appropriately
     }
   }
@@ -70,7 +87,19 @@ export class CognitoController {
       const result = await this.cognitoService.signOut(accessToken);
       return result; // Return the sign-in result (e.g., tokens)
     } catch (error) {
-      console.log('🚀 ~ CognitoController ~ signIn ~ error:', error);
+      console.error('🚀 ~ CognitoController ~ signout ~ error:', error);
+      throw error; // Handle the error appropriately
+    }
+  }
+
+  @Post('getUser')
+  async getCognitoUser(@Body() body: { accessToken: string }): Promise<any> {
+    const { accessToken } = body;
+    try {
+      const result = await this.cognitoService.getUser(accessToken);
+      return result; // Return the sign-in result (e.g., tokens)
+    } catch (error) {
+      console.error('🚀 ~ CognitoController ~ getCognitoUser ~ error:', error);
       throw error; // Handle the error appropriately
     }
   }

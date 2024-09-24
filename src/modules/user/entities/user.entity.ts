@@ -20,7 +20,7 @@ export class User extends BaseEntity {
   @Index()
   @IsNotEmpty({ message: 'Full Name cannot be empty' })
   @Length(3, 20, { message: 'Full Name must be between 3 and 10 characters' })
-  full_name: string;
+  full_name?: string;
 
   @Column({ nullable: true })
   @IsNotEmpty({ message: 'Email is required' })

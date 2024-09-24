@@ -18,10 +18,12 @@ export class UserService {
    * @returns {User}
    */
   async createUser(body: {
-    full_name: string;
+    fullName: string;
     email: string;
     phone_number: string;
     role: ROLES;
+    user_sub: string;
+    is_confirmed: boolean;
   }): Promise<User> {
     try {
       const existingUser = await this.userRepository.findOne({
@@ -35,12 +37,13 @@ export class UserService {
         );
       }
       // Ensure the role is an array, as per the entity definition
-      const newUser = this.userRepository.create({
+      const newUser = await this.userRepository.save({
         ...body,
+        full_name: body.fullName,
         role: [body.role], // Wrap the role in an array
       });
 
-      await this.userRepository.save(newUser);
+      // await this.userRepository.save(newUser);
       return newUser;
     } catch (error) {
       console.error(
@@ -78,14 +81,14 @@ export class UserService {
    * @param id
    * @returns {User}
    */
-  async findUserById(id: string): Promise<User> {
+  async findUserByUserSub(id: string): Promise<User> {
     try {
       const user: User | null = await this.userRepository.findOne({
-        where: { id: id },
+        where: { user_sub: id },
       });
       if (!user) {
         throw new HttpException(
-          `User with id : ${id} not found`,
+          `User with user_sub : ${id} not found`,
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -120,6 +123,69 @@ export class UserService {
     } catch (err) {
       console.error('🚀 ~ UserService ~ deleteUserById ~ err:', err);
       throw err;
+    }
+  }
+
+  async updateIsConfirmedUser({
+    user_sub,
+    is_confirmed,
+  }: {
+    user_sub: string;
+    is_confirmed: boolean;
+  }): Promise<User> {
+    try {
+      const existingUser = await this.userRepository.findOneBy({
+        user_sub,
+      });
+
+      if (!existingUser) {
+        throw new HttpException(
+          `User with User Sub: ${user_sub} does not exist`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Update the user's is_confirmed field
+      existingUser.is_confirmed = is_confirmed;
+
+      // Save the updated user object
+      return await this.userRepository.save(existingUser);
+    } catch (error) {
+      console.error(
+        '🚀 ~ file: user.service.ts ~ UserService ~ updateUser ~ error:',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch a user for the given Id
+   *
+   * @param data
+   * @returns {User}
+   */
+  async findUserByUserEmailOrPhone(data: string): Promise<Boolean> {
+    try {
+      const user: User | null = await this.userRepository.findOne({
+        where: [
+          { phone_number: data }, // Search by phone_number
+          { email: data }, // Search by email
+        ],
+      });
+      if (user) {
+        throw new HttpException(
+          `User with this data already exist`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return true;
+    } catch (error) {
+      console.error(
+        '🚀 ~ file: user.service.ts ~ UserService ~ findUserById ~ error:',
+        error,
+      );
+      throw error;
     }
   }
 }
