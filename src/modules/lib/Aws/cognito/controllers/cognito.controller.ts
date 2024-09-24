@@ -1,6 +1,7 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CognitoService } from '../services/cognito.service';
+import { JwtGuard } from 'src/modules/Auth/guards/aws.cognito.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -92,6 +93,7 @@ export class CognitoController {
     }
   }
 
+  @UseGuards(JwtGuard)
   @Post('getUser')
   async getCognitoUser(@Body() body: { accessToken: string }): Promise<any> {
     const { accessToken } = body;
