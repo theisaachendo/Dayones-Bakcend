@@ -4,7 +4,6 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
 import {
   AuthFlowType,
   CognitoIdentityProviderClient,
@@ -17,8 +16,11 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { UserService } from 'src/modules/user/services/user.service';
 import { ROLES } from 'src/shared/constants';
-import { CognitoJwtVerifier } from 'aws-jwt-verify';
-
+import { cognitoJwtVerify, computeSecretHash } from '../utils/cognito.utils';
+import { signupUserAttributes } from '../dto/constants';
+import { SignInUserInput, UserSignUpInput } from '../dto/types';
+import { User } from 'src/modules/user/entities/user.entity';
+import { GlobalServiceResponse } from 'src/shared/types';
 @Injectable()
 export class CognitoService {
   private clientId = process.env.COGNITO_CLIENT_ID; // Replace with your App Client ID
@@ -30,79 +32,54 @@ export class CognitoService {
     });
   }
 
-  // Helper function to compute SECRET_HASH
-  /**
-   *
-   * @param username Service to compute hash on the basis of cognito client secret
-   * @returns {String}
-   */
-  private computeSecretHash(username: string): string {
-    const hmac = crypto.createHmac(
-      'sha256',
-      process.env.COGNITO_CLIENT_SECRET || '',
-    );
-    hmac.update(username + this.clientId);
-    return hmac.digest('base64');
-  }
-
   /**
    * Service for user signup on the basis of user data
    * @param email
    * @param password
    * @param role
    * @param name
-   * @param phoneNumber
-   * @returns {}
+   * @param phone_number
+   * @returns {User}
    */
-  async signUp(
-    email: string,
-    password: string,
-    role: string,
-    name: string,
-    phoneNumber: string,
-  ) {
+  async signUp(userData: UserSignUpInput): Promise<User> {
+    const {
+      email,
+      password,
+      role,
+      name: userFullName,
+      phone_number,
+    } = userData;
     const params = {
       ClientId: this.clientId || '',
-      SecretHash: this.computeSecretHash(email),
+      SecretHash: computeSecretHash(email),
       Username: email,
       Password: password,
-      UserAttributes: [
-        {
-          Name: 'email', // Standard Cognito attribute for email
-          Value: email, // Assuming username is an email
-        },
-        {
-          Name: 'custom:role', // Custom attribute for role
-          Value: role,
-        },
-        {
-          Name: 'name',
-          Value: name,
-        },
-        {
-          Name: 'phone_number',
-          Value: phoneNumber,
-        },
-      ],
+      UserAttributes: signupUserAttributes(
+        email,
+        role,
+        userFullName,
+        phone_number,
+      ),
     };
-
     try {
       const command = new SignUpCommand(params);
       const result = await this.cognitoClient.send(command);
-      await this.userService.createUser({
-        fullName: name,
+      const newUser = await this.userService.createUser({
+        name: userFullName,
         email,
-        phone_number: phoneNumber, // Ensure you pass phoneNumber as phone_number
+        phone_number, // Ensure you pass phoneNumber as phone_number
         role: ROLES[role as keyof typeof ROLES], // Assuming role is of type ROLES
         user_sub: result.UserSub || '', // UserSub returned by Cognito
         is_confirmed: false, // Assuming the user is not confirmed immediately
       });
-      return result;
+      return newUser;
     } catch (error) {
       console.error('🚀 ~ CognitoService ~ error:', error);
       throw new HttpException(
         `User Creation Error: ${error.message}`,
-        HttpStatus.BAD_REQUEST,
+        error['$metadata'].httpStatusCode ||
+          error.status ||
+          HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -116,23 +93,37 @@ export class CognitoService {
   async confirmSignUp(
     username: string,
     confirmationCode: string,
-  ): Promise<any> {
+  ): Promise<GlobalServiceResponse> {
     const params = {
       ClientId: this.clientId || '',
       Username: username,
-      SecretHash: this.computeSecretHash(username),
+      SecretHash: computeSecretHash(username),
       ConfirmationCode: confirmationCode,
     };
-
     try {
       const command = new ConfirmSignUpCommand(params);
       const result = await this.cognitoClient.send(command);
-      return result;
+      // Check if the response is successful (HTTP 200)
+      if (result['$metadata']?.httpStatusCode === HttpStatus.OK) {
+        return {
+          message: 'User confirmation is successful',
+          statusCode: result['$metadata'].httpStatusCode,
+        };
+      }
+      // In case of an unexpected response code
+      return {
+        message: 'Unexpected response from Cognito',
+        statusCode:
+          result['$metadata'].httpStatusCode ||
+          HttpStatus.INTERNAL_SERVER_ERROR,
+      };
     } catch (error) {
       console.error('🚀 ~ CognitoService ~ error:', error);
       throw new HttpException(
-        `Code Verification failed: ${error.message}`,
-        HttpStatus.BAD_REQUEST,
+        `User Code Verification Error: ${error.message}`,
+        error['$metadata'].httpStatusCode ||
+          error.status ||
+          HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -142,20 +133,37 @@ export class CognitoService {
    * @param username
    * @returns {}
    */
-  async resendSignUpCode(username: string) {
+  async resendSignUpCode(username: string): Promise<GlobalServiceResponse> {
     try {
       const params = {
         ClientId: this.clientId || '',
         Username: username,
-        SecretHash: this.computeSecretHash(username),
+        SecretHash: computeSecretHash(username),
       };
       const command = new ResendConfirmationCodeCommand(params);
-      const response = await this.cognitoClient.send(command);
-      return response;
+      const result = await this.cognitoClient.send(command);
+      if (result['$metadata']?.httpStatusCode === HttpStatus.OK) {
+        return {
+          message: 'Confirmation email sent successfully',
+          statusCode: result['$metadata'].httpStatusCode,
+          data: {
+            attribute_name: result?.CodeDeliveryDetails?.AttributeName,
+            delivery_medium: result?.CodeDeliveryDetails?.DeliveryMedium,
+            destination: result?.CodeDeliveryDetails?.Destination,
+          },
+        };
+      }
+      // In case of an unexpected response code
+      return {
+        message: 'Unexpected response from Cognito',
+        statusCode:
+          result['$metadata'].httpStatusCode ||
+          HttpStatus.INTERNAL_SERVER_ERROR,
+      };
     } catch (error) {
       console.error('error resending registration code', error);
       throw new HttpException(
-        `Verification Code Sending failed: ${error.message}`,
+        `Verification Code Email failed to send: ${error.message}`,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -167,43 +175,57 @@ export class CognitoService {
    * @param password
    * @returns {AccessToken}
    */
-  async signIn(username: string, password: string) {
+  async signIn(signInData: SignInUserInput): Promise<GlobalServiceResponse> {
     const params = {
       AuthFlow: AuthFlowType.USER_PASSWORD_AUTH,
       ClientId: this.clientId || '',
       AuthParameters: {
-        USERNAME: username,
-        PASSWORD: password,
-        SECRET_HASH: this.computeSecretHash(username), // Include SecretHash here
+        USERNAME: signInData.username,
+        PASSWORD: signInData.password,
+        SECRET_HASH: computeSecretHash(signInData.username), // Include SecretHash here
       },
     };
 
     try {
       const command = new InitiateAuthCommand(params);
-      const response = await this.cognitoClient.send(command);
-      const cognito = CognitoJwtVerifier.create({
-        userPoolId: process.env.COGNITO_POOL_ID || '', // Your User Pool ID
-        tokenUse: 'access', // or 'id' based on your use case
-        clientId: process.env.COGNITO_CLIENT_ID, // Your Client ID
-        issuer: process.env.COGNITO_ISSUER_URL, // Expected issuer
-        // Add additional options if needed
-      });
-      const payload = await cognito.verify(
-        response?.AuthenticationResult?.AccessToken || '',
-        {
-          tokenUse: 'access',
-          clientId: process.env.COGNITO_CLIENT_ID || '',
-        },
-      );
-      await this.userService.updateIsConfirmedUser({
-        user_sub: payload.username,
-        is_confirmed: true,
-      });
-      const user = await this.userService.findUserByUserSub(payload.username);
-      return { response: response.AuthenticationResult, user }; // Contains the JWT tokens (ID, Access, and Refresh)
+      const result = await this.cognitoClient.send(command);
+      if (
+        result['$metadata']?.httpStatusCode === HttpStatus.OK &&
+        result?.AuthenticationResult?.AccessToken
+      ) {
+        const payload = await cognitoJwtVerify().verify(
+          result?.AuthenticationResult?.AccessToken || '',
+          {
+            tokenUse: 'access',
+            clientId: process.env.COGNITO_CLIENT_ID || '',
+          },
+        );
+        await this.userService.updateIsConfirmedUser({
+          user_sub: payload.username,
+          is_confirmed: true,
+        });
+        const user = await this.userService.findUserByUserSub(payload.username);
+        return {
+          statusCode: result['$metadata'].httpStatusCode,
+          message: 'User Sign in Successfully',
+          data: {
+            access_token: result?.AuthenticationResult?.AccessToken,
+            expires_in: result?.AuthenticationResult?.ExpiresIn,
+            refresh_token: result?.AuthenticationResult?.RefreshToken,
+            token_type: result?.AuthenticationResult?.TokenType,
+            user,
+          },
+        }; // Contains the JWT tokens (ID, Access, and Refresh)
+      }
+      // Handle cases where authentication is unsuccessful
+      return {
+        statusCode: HttpStatus.UNAUTHORIZED,
+        message: 'Authentication failed: Invalid credentials',
+      };
     } catch (error) {
-      throw new UnauthorizedException(
-        `Authentication failed: ${error.message}`,
+      throw new HttpException(
+        `Unauthorized user: ${error.message}`,
+        HttpStatus.UNAUTHORIZED,
       );
     }
   }
@@ -213,7 +235,7 @@ export class CognitoService {
    * @param accessToken
    * @returns {}
    */
-  async signOut(accessToken: string) {
+  async signOut(accessToken: string): Promise<GlobalServiceResponse> {
     const params = {
       AccessToken: accessToken,
     };
@@ -221,25 +243,55 @@ export class CognitoService {
       // Global sign out logs the user out from all devices
       const command = new GlobalSignOutCommand(params);
       const result = await this.cognitoClient.send(command);
-      return result; // Successfully signed out
+      if (result['$metadata']?.httpStatusCode === HttpStatus.OK) {
+        return {
+          message: 'User Signed Out successfully successfully',
+          statusCode: result['$metadata'].httpStatusCode,
+          data: '',
+        };
+      }
+      // In case of an unexpected response code
+      return {
+        message: 'Unexpected response from Cognito',
+        statusCode:
+          result['$metadata'].httpStatusCode ||
+          HttpStatus.INTERNAL_SERVER_ERROR,
+      };
     } catch (error) {
       console.error('🚀 ~ CognitoService ~ signOut error:', error);
-      throw new UnauthorizedException(`Sign out failed: ${error.message}`);
+      throw new HttpException(
+        `Cognito Error : ${error.message}`,
+        error['$metadata']?.httpStatusCode || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  async getUser(accessToken: string) {
+  /**
+   *
+   * @param user
+   * @returns
+   */
+  async getUser(user: string): Promise<GlobalServiceResponse> {
     try {
-      const params = {
-        AccessToken: accessToken,
+      const response = await this.userService.findUserByUserSub(user);
+      if (response) {
+        return {
+          message: 'User Fetched Successfully!',
+          statusCode: 200,
+          data: { ...response, role: response?.role[0] },
+        };
+      }
+      // Handle cases where authentication is unsuccessful
+      return {
+        statusCode: HttpStatus.UNAUTHORIZED,
+        message: 'Authentication failed: Invalid credentials',
       };
-      // Global sign out logs the user out from all devices
-      const command = new GetUserCommand(params);
-      const result = await this.cognitoClient.send(command);
-      return result; // Successfully signed out
     } catch (error) {
       console.error('🚀 ~ CognitoService ~ signOut error:', error);
-      throw new UnauthorizedException(`Get User failed: ${error.message}`);
+      throw new HttpException(
+        `Unauthorized user: ${error.message}`,
+        HttpStatus.UNAUTHORIZED,
+      );
     }
   }
 }

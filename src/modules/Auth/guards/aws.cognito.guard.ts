@@ -2,21 +2,16 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
-import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { cognitoJwtVerify } from 'src/modules/lib/Aws/cognito/utils/cognito.utils';
 
 @Injectable()
 export class JwtGuard implements CanActivate {
   private readonly verifier;
   constructor() {
-    this.verifier = CognitoJwtVerifier.create({
-      userPoolId: process.env.COGNITO_POOL_ID || '', // Your User Pool ID
-      tokenUse: 'access', // or 'id' based on your use case
-      clientId: process.env.COGNITO_CLIENT_ID, // Your Client ID
-      issuer: process.env.COGNITO_ISSUER_URL, // Expected issuer
-      // Add additional options if needed
-    });
+    this.verifier = cognitoJwtVerify();
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -24,7 +19,7 @@ export class JwtGuard implements CanActivate {
     const token = this.extractToken(request);
 
     if (!token) {
-      throw new ForbiddenException('Token not provided');
+      throw new HttpException(`Token is Required `, HttpStatus.BAD_REQUEST);
     }
 
     try {
@@ -33,10 +28,13 @@ export class JwtGuard implements CanActivate {
         clientId: process.env.COGNITO_CLIENT_ID || '',
       });
       // You can add additional checks or modify the request object if needed
-      request.user = payload; // Attach the payload to the request object
+      request.user_sub = payload.username;
       return true;
     } catch (error) {
-      throw new ForbiddenException(`Token not valid: ${error.message}`);
+      throw new HttpException(
+        `Unauthorized: ${error.message}`,
+        HttpStatus.UNAUTHORIZED,
+      );
     }
   }
 

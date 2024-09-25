@@ -3,6 +3,7 @@ import { User } from '../entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ROLES } from 'src/shared/constants';
+import { createUserInput } from 'src/modules/lib/Aws/cognito/dto/types';
 
 @Injectable()
 export class UserService {
@@ -17,14 +18,7 @@ export class UserService {
    * @param registerUserInput
    * @returns {User}
    */
-  async createUser(body: {
-    fullName: string;
-    email: string;
-    phone_number: string;
-    role: ROLES;
-    user_sub: string;
-    is_confirmed: boolean;
-  }): Promise<User> {
+  async createUser(body: createUserInput): Promise<User> {
     try {
       const existingUser = await this.userRepository.findOne({
         where: { email: body?.email },
@@ -39,7 +33,7 @@ export class UserService {
       // Ensure the role is an array, as per the entity definition
       const newUser = await this.userRepository.save({
         ...body,
-        full_name: body.fullName,
+        full_name: body.name,
         role: [body.role], // Wrap the role in an array
       });
 
